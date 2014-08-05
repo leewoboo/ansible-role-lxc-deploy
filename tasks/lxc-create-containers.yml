@@ -1,0 +1,49 @@
+---
+# based on https://github.com/kupishkis/role.lxc-create
+- name: check for existing lxc containers                                             
+  sudo: true                                                                    
+  shell: lxc-ls                                                                 
+  register: lxc_existing  
+
+- name: create a temporary lxc container configuration                                        
+  sudo: true                                                                    
+  template: src=lxc-container-config.j2 dest=/tmp/lxc-{{container_name}}.conf      
+  when: not container_name in lxc_existing.stdout_lines                     
+
+#- name: create a temporary template
+#  sudo: true
+#  copy: >
+#    src=usr/share/lxc/templates/lxc-debian-modified
+#    dest=/tmp/lxc-debian-modified
+#  when: not container_name in lxc_existing.stdout_lines                     
+                                                                                
+- name: create a lxc container (usewithtor)                                                     
+  sudo: true                                                                    
+  shell: usewithtor lxc-create  -n {{ container_name}} -f /tmp/lxc-{{container_name}}.conf -t debian -- -r {{distribution}}
+  when: not container_name in lxc_existing.stdout_lines and usetor
+
+
+- name: create a lxc container                                                      
+  sudo: true                                                                    
+  shell: lxc-create  -n {{ container_name}} -f /tmp/lxc-{{container_name}}.conf -t debian -- -r {{distribution}}
+      #shell: usewithtor lxc-create  -n {{ container_name}} -f /tmp/lxc-{{container_name}}.conf -t debian-modified -- -r wheezy
+  when: not container_name in lxc_existing.stdout_lines and not usetor
+
+                                                                               
+- name: replace lxc container network config                                       
+  sudo: true                                                                    
+  template: src=lxc-container-interfaces.j2 dest=/var/lib/lxc/{{container_name}}/rootfs/etc/network/interfaces
+
+# FIXME: don't start it if it's already started                                                                                
+- name: start a lxc container                                                       
+  sudo: true                                                                    
+  shell: lxc-start -n {{container_name}} -d                                 
+  when: start is defined and start     
+
+- name: ensure a container ip and name is in /etc/hosts
+  sudo: true
+  lineinfile: >
+    state=present
+    dest=/etc/hosts
+    line="{{ container_address }} {{ container_name }}"
+  when: addtoetchosts

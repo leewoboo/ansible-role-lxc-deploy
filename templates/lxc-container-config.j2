@@ -1,0 +1,6 @@
+lxc.network.type                        = veth
+lxc.network.flags                       = up
+lxc.network.link                        = {{ bridge_name }}
+lxc.network.name                        = eth0
+lxc.network.ipv4 = {{container_ip}}/{{ bridge_cidr }}
+lxc.network.ipv4.gateway = {{ bridge_address }}

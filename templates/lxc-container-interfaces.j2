@@ -1,0 +1,14 @@
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+# {{ansible_managed}}
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+    address         {{container_address}}
+    netmask         {{bridge_netmask}}
+    gateway         {{bridge_address}}

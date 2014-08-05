@@ -1,0 +1,10 @@
+---
+
+## install lxc
+- include: lxc-install.yml
+
+## create container
+- include: lxc-create-containers.yml
+
+## create the container user and ssh keys
+#- include: lxc-container-user-keys.yml

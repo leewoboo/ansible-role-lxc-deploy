@@ -1,0 +1,150 @@
+---
+## Based on  https://github.com/deimosfr/ansible-lxc 
+
+## Avoid a bug in Debian with latest kernel (https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=679086)
+- name: blacklist modules
+  sudo: true                                                       
+  kernel_blacklist: name={{ item }} state=present                               
+  with_items:                                                                   
+    - netrom                                                                    
+    - ax25                                                                      
+    - rose
+
+- name: install lxc
+  sudo: true
+  apt: pkg={{ item }} state=latest  install_recommends=no
+  with_items:
+    - lxc
+    - bridge-utils
+    - debootstrap
+  when: usetor is not defined or not usetor
+
+- name: install lxc (usewithtor)
+  sudo: true
+  shell: DEBIAN_FRONTEND=noninteractive usewithtor apt-get install lxc bridge-utils debootstrap --no-install-recommends -q -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+  environment: 
+      DEBIAN_FRONTEND: noninteractive
+  when: usetor is defined and usetor
+
+## Custom location for lxc containers and cache
+## The following tasks will perform:
+##sudo mv /var/lib/lxc /home/user/lxclib
+##sudo mv /var/cache/lxc /home/user/lxccache
+##sudo ln -s /home/user/lxclib /var/lib/lxc
+##sudo ln -s /home/user/lxccache /var/cache/lxc
+
+- name: gather state of user lib dirs
+  sudo: true
+  stat: path={{lxclib_path}}
+  register: lxclib_stat
+  when: lxclib_path is defined
+
+- name: gather state of user lxc cache
+  sudo: true
+  stat: path={{lxccache_path}}
+  register: lxccache_stat
+  when: lxccache_path is defined
+
+- name: move system lxc cache to user location
+  sudo: true
+  command: mv /var/cache/lxc {{lxccache_path}}
+  when: lxccache_stat.stat.exists == False and lxccache_path is defined
+
+- name: move system lib dirs to user location
+  sudo: true
+  command: mv /var/lib/lxc {{lxclib_path}}
+  when: lxclib_stat.stat.exists == False and lxclib_path is defined
+
+- name: gather state of system lxc cache
+  sudo: true
+  file: path=/var/cache/lxc src={{lxccache_path}} state=link
+  register: lxccache_link_stat
+  when: lxccache_path is defined
+
+- name: gather state of system lxc lib
+  sudo: true
+  file: path=/var/lib/lxc src={{lxclib_path}} state=link
+  register: lxclib_link_stat
+  when: lxclib_path is defined
+
+## Custom packages for the containers
+- name: ensure template include the custom packages to install in the containers
+  sudo: true
+  lineinfile: >
+    dest=/usr/share/lxc/templates/lxc-debian
+    line="vim,mtr-tiny,sudo,python"
+    state=present
+    insertafter="inetutils-ping"
+  tags:
+    - lxctemplate
+
+## alternatively, copy a modified template
+## FIXME: it'd be better to have a different template that the debian package 
+## one, as it'll be overwrotten by newer package versions
+#- name: copy modified template with custom packages to install in the containers
+#  sudo: true                                                                    
+#  copy: >                                                                       
+#    src=usr/share/lxc/templates/lxc-debian-modified                             
+#    dest=/usr/share/lxc/templates/lxc-debian 
+#
+## FIXME: this doesn't have any effect with lxc version 0.8.0
+#- name: customize packages to be installed in the containers
+#  sudo: true
+#  copy: >
+#    src=etc/lxc/packages
+#    dest=/etc/lxc/packages
+
+
+## Mount cgroup
+- name: ensure cgroup is mounted
+  sudo: true
+  mount: src=cgroup name='/sys/fs/cgroup' opts=defaults fstype=cgroup state=mounted
+
+- name: ensure cgroup line in fstab
+  sudo: true
+  lineinfile: 
+    state=present
+    dest=/etc/fstab
+    regexp="cgroup\\s+/sys/fs/cgroup\\s+cgroup\\s+defaults\\s+0\\s+0"
+    line="cgroup  /sys/fs/cgroup  cgroup  defaults  0   0"
+
+## Configure bridge interface                     
+
+# FIXME: maybe better to use template here, though it'd change all interfaces
+# it's possible to use interfaces.d/ though
+# FIXME: maybe better split this in several tasks, 1 per line to specify the order 
+
+- name: configure bridge interface
+  sudo: true
+  lineinfile: >
+    state=present
+    dest=/etc/network/interfaces
+    regexp="{{ item.regexp }}"
+    line="{{ item.line }}"
+  with_items:
+    - { regexp: "^auto {{ bridge_name }}", line: "auto {{ bridge_name }}" }
+    - { regexp: "^iface {{ bridge_name }} inet static", line: "iface {{ bridge_name }} inet static" }
+    - { regexp: "^\\s*address {{ bridge_address }}", line: "        address {{ bridge_address }}" }
+    - { regexp: "^\\s*netmask {{ bridge_netmask }}" , line: "        netmask {{ bridge_netmask }}" }
+    - { regexp: "^\\s*pre-up brctl addbr {{ bridge_name }}", line: "        pre-up brctl addbr {{ bridge_name }}" }
+    - { regexp: "^\\s*post-down brctl delbr {{ bridge_name }}", line: "        post-down brctl delbr {{ bridge_name }}" }
+
+  tags:
+    - interfaces
+  # probably we don't want to restart all interfaces
+  #notify: restart network
+
+## FIXME: this doesn't check interface is already up, but won't do 
+## anything if it's already
+
+- name: ensure bridge interface is up
+  sudo: true
+  command: ifconfig {{ bridge_name }} up
+  tags: 
+    - bridgeup
+                                        
+#- name: configure bridge interface copying template 
+#  template: src=interfaces.j2 dest=/etc/network/interfaces.d/lxc 
+#  notify: restart network
+
+## Firewall is configured in a different role
