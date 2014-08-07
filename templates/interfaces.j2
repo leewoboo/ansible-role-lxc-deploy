@@ -3,4 +3,4 @@ iface {{ bridge_name }} inet static
     address {{ bridge_address }}
     netmask {{ bridge_netmask }}
     pre-up brctl addbr {{ bridge_name }}
-    post-down brctl delbr lxcbr0
+    post-down brctl delbr {{ bridge_name }}
